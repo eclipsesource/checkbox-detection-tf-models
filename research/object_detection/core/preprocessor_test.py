@@ -32,6 +32,7 @@ from object_detection.core import preprocessor_cache
 from object_detection.core import standard_fields as fields
 from object_detection.utils import test_case
 from object_detection.utils import tf_version
+from object_detection.protos import preprocessor_pb2
 
 if six.PY2:
   import mock  # pylint: disable=g-import-not-at-top
@@ -3979,6 +3980,62 @@ class PreprocessorTest(test_case.TestCase, parameterized.TestCase):
     (image_original_shape_, image_gamma_shape_) = self.execute_cpu(graph_fn, [])
     self.assertAllEqual(image_original_shape_, image_gamma_shape_)
 
+  def _parse_dict_to_msg(self, dictionary, message):
+    for key, value in dictionary.items():
+      if isinstance(value, dict):
+        self._parse_dict_to_msg(value, getattr(message, key))
+      elif isinstance(value, list):
+        getattr(message, key).extend(value)
+      else:
+        setattr(message, key, value)
+
+  @parameterized.named_parameters(
+    {
+      'testcase_name': 'augment_seq_0', 
+      'random_coef': 0.0,
+      'augment_funcs': {
+        'motion_blur': {'k': 15},
+        'average_blur': {'k': [2, 5]}
+      }
+    },
+    {
+      'testcase_name': 'augment_seq_1', 
+      'random_coef': 0.0,
+      'augment_funcs': {
+          'average_blur': {'k': [2, 5]}
+      }
+    }
+    )
+
+  def test_random_imgaug(self, random_coef, augment_funcs):
+
+    def graph_fn():
+      augment_seq_msg = preprocessor_pb2.AugmentFuncs()
+      self._parse_dict_to_msg(augment_funcs, augment_seq_msg)
+      preprocessing_options = [
+        (
+          preprocessor.random_imgaug,
+          {'imgaug_seq_msg': augment_seq_msg, 'random_coef': random_coef}
+        )
+      ]
+      boxes_expected = tf.cast(self.createTestBoxes(), tf.float32)
+      labels_expected = tf.cast(self.createTestLabels(), dtype=tf.int64)
+      images = tf.cast(self.createTestImages(), dtype=tf.float32)
+      image_shape_expected = images.shape
+      tensor_dict = {
+          fields.InputDataFields.image: images,
+          fields.InputDataFields.groundtruth_boxes: boxes_expected,
+          fields.InputDataFields.groundtruth_classes: labels_expected,
+      }
+      tensor_dict = preprocessor.preprocess(tensor_dict, preprocessing_options)
+      images = tensor_dict[fields.InputDataFields.image]
+      boxes = tensor_dict[fields.InputDataFields.groundtruth_boxes]
+      labels = tensor_dict[fields.InputDataFields.groundtruth_classes]
+      return images.shape, boxes, labels, labels_expected, boxes_expected, image_shape_expected
+    image_shape, boxes, labels, labels_expected, boxes_expected, image_shape_expected = self.execute_cpu(graph_fn, [])
+    self.assertAllEqual(boxes, boxes_expected)
+    self.assertAllEqual(labels, labels_expected)
+    self.assertAllEqual(image_shape, image_shape_expected)
 
 if __name__ == '__main__':
   tf.test.main()
