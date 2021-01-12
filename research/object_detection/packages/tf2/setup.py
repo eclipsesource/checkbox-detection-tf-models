@@ -21,7 +21,9 @@ REQUIRED_PACKAGES = [
     'lvis',
     'scipy',
     'pandas',
-    'tf-models-official'
+    'tf-models-official',
+    'imgaug',
+    'onnx'
 ]
 
 setup(

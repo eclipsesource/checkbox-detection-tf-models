@@ -58,6 +58,7 @@ class PreprocessorCache(object):
   DOWNSCALE_TO_TARGET_PIXELS = 'downscale_to_target_pixels'
   PATCH_GAUSSIAN = 'patch_gaussian'
   SQUARE_CROP_BY_SCALE = 'square_crop_scale'
+  IMGAUG = 'imgaug'
 
   # 27 permitted function ids
   _VALID_FNS = [ROTATION90, HORIZONTAL_FLIP, VERTICAL_FLIP, PIXEL_VALUE_SCALE,
@@ -68,7 +69,8 @@ class PreprocessorCache(object):
                 SELECTOR_TUPLES, SELF_CONCAT_IMAGE, SSD_CROP_SELECTOR_ID,
                 SSD_CROP_PAD_SELECTOR_ID, JPEG_QUALITY,
                 DOWNSCALE_TO_TARGET_PIXELS, PATCH_GAUSSIAN,
-                SQUARE_CROP_BY_SCALE]
+                SQUARE_CROP_BY_SCALE,
+                IMGAUG]
 
   def __init__(self):
     self._history = collections.defaultdict(dict)

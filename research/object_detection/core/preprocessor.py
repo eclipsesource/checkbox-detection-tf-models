@@ -87,6 +87,7 @@ from object_detection.utils import autoaugment_utils
 from object_detection.utils import ops
 from object_detection.utils import patch_ops
 from object_detection.utils import shape_utils
+from object_detection.utils import imgaug_utils
 
 
 def _apply_with_random_selector(x,
@@ -4286,6 +4287,55 @@ def random_scale_crop_and_pad_to_square(
 
   return return_values
 
+def random_imgaug(image,
+                  boxes=None,
+                  labels=None,
+                  random_coef=0.0,
+                  imgaug_seq_msg=None,
+                  seed=None,
+                  preprocess_vars_cache=None):
+  """Use 'imgaug' library for image augmentation. 
+  Built-in image augmentation methods cannot meet all augmentation demands.
+  'imgaug' offers more varieties of useful image augmentation methods.
+
+  Args:
+    image: rank 3 float32 tensor with shape -> [height, width, channels].
+    random_coef: a random coefficient that defines the chance of getting the
+      original image. If random_coef is 0, we will always get the augmented image,
+      and if it is 1.0, we will always get the original image.
+    seed: random seed.
+    preprocess_vars_cache: PreprocessorCache object that records previously
+      performed augmentations. Updated in-place. If this function is called
+      multiple times with the same non-null cache, it will perform
+      deterministically.
+
+  Returns:
+    image: A rank3 float32 numpy array wiht image which is the same rank as input image.
+    boxes: A rank 2 float32 numpy array with boxes which is the same rank as input boxes.
+           Boxes are in normalized form.
+    labels: A rank1 int64 numpy array with labels.
+    
+  """
+  def _augment_with_imgaug():
+    augmented_results = tf.py_function(
+        func=imgaug_utils.get_augment_func(imgaug_seq_msg),
+        inp=[image, boxes, labels],
+        Tout=[tf.float32, tf.float32, tf.int64]
+    )
+    shape_list = [tensor.shape for tensor in [image, boxes, labels]]
+    return tuple(map(tf.ensure_shape, augmented_results, shape_list))
+    
+  with tf.name_scope('RandomImgAug', values=[image, boxes, labels]):
+    generator_func = functools.partial(tf.random_uniform, [], seed=seed)
+    do_encoding_random = _get_or_create_preprocess_rand_vars(
+        generator_func,
+        preprocessor_cache.PreprocessorCache.IMGAUG,
+        preprocess_vars_cache)
+    do_encoding_random = tf.greater_equal(do_encoding_random, random_coef)
+    image_and_boxes = tf.cond(do_encoding_random, _augment_with_imgaug,
+                    lambda: (image, boxes, labels))
+  return image_and_boxes
+
 
 def get_default_func_arg_map(include_label_weights=True,
                              include_label_confidences=False,
@@ -4526,6 +4576,10 @@ def get_default_func_arg_map(include_label_weights=True,
            groundtruth_label_weights, groundtruth_instance_masks,
            groundtruth_keypoints, groundtruth_label_confidences),
       adjust_gamma: (fields.InputDataFields.image,),
+      random_imgaug: (
+          fields.InputDataFields.image,
+          fields.InputDataFields.groundtruth_boxes,
+          fields.InputDataFields.groundtruth_classes),
   }
 
   return prep_func_arg_map

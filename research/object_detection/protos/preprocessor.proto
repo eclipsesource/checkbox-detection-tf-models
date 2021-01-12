@@ -46,6 +46,7 @@ message PreprocessingStep {
     RandomSquareCropByScale random_square_crop_by_scale = 37;
     RandomScaleCropAndPadToSquare random_scale_crop_and_pad_to_square = 38;
     AdjustGamma adjust_gamma = 39;
+    RandomImgAug random_imgaug = 40;
   }
 }
 
@@ -596,4 +597,22 @@ message RandomScaleCropAndPadToSquare {
 message AdjustGamma {
   optional float gamma = 1 [default=1.0];
   optional float gain = 2 [default=1.0];
+}
+
+message MotionBlur {
+    optional int32 k = 1;
+}
+
+message AverageBlur {
+    repeated int32 k = 1;
+}
+
+message AugmentFuncs {
+  optional MotionBlur motion_blur = 1;
+  optional AverageBlur average_blur = 2;
+}
+
+message RandomImgAug {
+  optional float random_coef = 1 [default=0.0];
+  optional AugmentFuncs augment_funcs = 2;
 }
