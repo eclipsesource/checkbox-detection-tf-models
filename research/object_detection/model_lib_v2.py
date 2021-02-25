@@ -143,16 +143,20 @@ def _compute_losses_and_predictions_dicts(
 ## The full losses dict instead of just total_loss, then doing all summaries
 ## saving in a utility method called by the outer training loop.
 # TODO(kaftan): Explore adding gradient summaries
-def eager_train_step(detection_model,
-                     features,
-                     labels,
-                     unpad_groundtruth_tensors,
-                     optimizer,
-                     learning_rate,
-                     add_regularization_loss=True,
-                     clip_gradients_value=None,
-                     global_step=None,
-                     num_replicas=1.0):
+def eager_train_step(
+  detection_model,
+  features,
+  labels,
+  category_index,
+  unpad_groundtruth_tensors,
+  optimizer,
+  learning_rate,
+  add_regularization_loss=True,
+  clip_gradients_value=None,
+  global_step=None,
+  num_replicas=1.0,
+  max_boxes_to_draw=20
+  ):
   """Process a single training batch.
 
   This method computes the loss for the model on a single training batch,
@@ -264,11 +268,41 @@ def eager_train_step(detection_model,
     gradients, _ = tf.clip_by_global_norm(gradients, clip_gradients_value)
   optimizer.apply_gradients(zip(gradients, trainable_variables))
   tf.compat.v2.summary.scalar('learning_rate', learning_rate, step=global_step)
-  tf.compat.v2.summary.image(
-      name='train_input_images',
+  for indx in range(features[fields.InputDataFields.image].shape[0]):
+    num_gt = labels['num_groundtruth_boxes'][indx]
+    viz_image = (
+      (features[fields.InputDataFields.image]+1)*255/2
+      )[indx, : ,: ,:]
+    viz_boxes, viz_classes = map(
+      lambda curr_key: labels[curr_key][indx][:num_gt, :],
+      [
+        fields.InputDataFields.groundtruth_boxes,
+        fields.InputDataFields.groundtruth_classes,
+         ]
+    )
+    org_img_shape, true_img_shape = map(
+      lambda curr_key: features[curr_key][indx, :],
+      [
+        fields.InputDataFields.original_image_spatial_shape,
+        fields.InputDataFields.true_image_shape
+      ] 
+    )
+    tf.compat.v2.summary.image(
+      name=f'train_input_images_{indx}',
       step=global_step,
-      data=features[fields.InputDataFields.image],
-      max_outputs=3)
+      data=vutils.draw_bounding_boxes_on_image_tensors(
+        images = tf.expand_dims(viz_image, axis=0),
+        boxes = tf.expand_dims(viz_boxes, axis=0),
+        classes = tf.expand_dims(tf.math.argmax(viz_classes, -1), axis=0) + 1,
+        scores = tf.ones([1, num_gt], dtype=tf.float32),
+        category_index = category_index,
+        original_image_spatial_shape = tf.expand_dims(org_img_shape, axis=0),
+        true_image_shape = tf.expand_dims(true_img_shape, axis=0),
+        max_boxes_to_draw=max_boxes_to_draw,
+        use_normalized_coordinates=True,
+        ),
+      max_outputs=3,
+      )
   return total_loss
 
 
@@ -583,16 +617,21 @@ def train_loop(
         def train_step_fn(features, labels):
           """Single train step."""
           loss = eager_train_step(
-              detection_model,
-              features,
-              labels,
-              unpad_groundtruth_tensors,
-              optimizer,
-              learning_rate=learning_rate_fn(),
-              add_regularization_loss=add_regularization_loss,
-              clip_gradients_value=clip_gradients_value,
-              global_step=global_step,
-              num_replicas=strategy.num_replicas_in_sync)
+            detection_model,
+            features,
+            labels,
+            label_map_util.create_category_index_from_labelmap(
+              configs['eval_input_config'].label_map_path
+              ),
+            unpad_groundtruth_tensors,
+            optimizer,
+            learning_rate=learning_rate_fn(),
+            add_regularization_loss=add_regularization_loss,
+            clip_gradients_value=clip_gradients_value,
+            global_step=global_step,
+            num_replicas=strategy.num_replicas_in_sync,
+            max_boxes_to_draw=train_config.max_number_of_boxes,
+            )
           global_step.assign_add(1)
           return loss
 
